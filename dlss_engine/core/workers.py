@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import shutil
 import signal
 import subprocess
+import threading
+import time
 import sys
 from pathlib import Path
 
@@ -129,7 +132,85 @@ def worker_launch(path: Path, *args: str) -> tuple[list[str], dict]:
         )
     # Wine diagnostics belong on stderr, never on the binary protocol stream.
     env.setdefault("WINEDEBUG", "-all")
+    if not env.get("DISPLAY"):
+        # Headless hosts: DXVK needs an X11 connection to create its Vulkan
+        # instance (VK_KHR_win32_surface); without one the worker hangs on
+        # surface creation. Share one virtual framebuffer across all workers
+        # of this process instead of wrapping every launch in xvfb-run, which
+        # would add noise to the binary protocol streams.
+        env["DISPLAY"] = _ensure_virtual_display()
     return [wine, *command], {"env": env, "start_new_session": True}
+
+
+_VIRTUAL_DISPLAY_LOCK = threading.Lock()
+_virtual_display_server: subprocess.Popen | None = None
+
+
+def _ensure_virtual_display() -> str:
+    global _virtual_display_server
+    with _VIRTUAL_DISPLAY_LOCK:
+        if (
+            _virtual_display_server is not None
+            and _virtual_display_server.poll() is None
+        ):
+            return _virtual_display_server.args[1]
+        xvfb = shutil.which("Xvfb")
+        if xvfb is None:
+            raise RuntimeError(
+                "No X display found and the \"xvfb\" package is not installed. "
+                "Install it (e.g. apt install xvfb) or start ComfyUI under a "
+                "virtual display such as xvfb-run."
+            )
+        last_error = None
+        for number in range(90, 105):
+            display = f":{number}"
+            try:
+                server = subprocess.Popen(
+                    [xvfb, display, "-screen", "0", "640x480x24"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except OSError as exc:
+                last_error = exc
+                continue
+            # Wait for the socket to appear or the server to die (e.g. the
+            # display number is already taken). A bare poll() right after
+            # spawn races against Xvfb startup and misreports success.
+            deadline = time.monotonic() + 5.0
+            socket_path = Path(f"/tmp/.X11-unix/X{number}")
+            while True:
+                if server.poll() is not None:
+                    break
+                if socket_path.exists():
+                    _virtual_display_server = server
+                    atexit.register(_stop_virtual_display)
+                    return display
+                if time.monotonic() > deadline:
+                    try:
+                        os.killpg(server.pid, signal.SIGTERM)
+                    except (ProcessLookupError, OSError):
+                        pass
+                    break
+                time.sleep(0.05)
+            last_error = RuntimeError(f"Xvfb exited with {server.returncode}")
+        raise RuntimeError(
+            "No X display found and no virtual framebuffer could be started"
+            + (f" ({last_error})" if last_error else "")
+            + ". Install the \"xvfb\" package or start ComfyUI under a "
+            "virtual display such as xvfb-run."
+        )
+
+
+def _stop_virtual_display() -> None:
+    global _virtual_display_server
+    server = _virtual_display_server
+    if server is not None and server.poll() is None:
+        try:
+            os.killpg(server.pid, signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            pass
+    _virtual_display_server = None
 
 
 class WorkerProcess(subprocess.Popen):
