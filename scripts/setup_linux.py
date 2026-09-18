@@ -114,6 +114,14 @@ def main(argv=None):
     )
     parser.add_argument("--gpu", help="Exact NVIDIA GPU name for Vulkan")
     parser.add_argument(
+        "--vulkan-name",
+        help="Vulkan physical device name for the DXVK/VKD3D-Proton filters. "
+        "Defaults to the GPU name. On PRIME-offload systems where the display "
+        "runs on another GPU, the NVIDIA driver can report a different Vulkan "
+        "deviceName than nvidia-smi (for example 'modesetting'); pass what "
+        "vulkaninfo reports, or every adapter gets filtered out.",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Check inputs and print paths without writing",
@@ -163,6 +171,9 @@ def main(argv=None):
         gpu in gpu_names,
         "Select a GPU with --gpu. Detected: " + ", ".join(gpu_names),
     )
+    # On hybrid systems the Vulkan deviceName can differ from the nvidia-smi
+    # name; the DXVK/VKD3D filters must match what the driver reports.
+    vulkan_name = args.vulkan_name or gpu
 
     sources = {name: files / "lib" / path for name, path in GRAPHICS.items()}
     sources["d3dcompiler_47.dll"] = args.compiler
@@ -221,11 +232,12 @@ def main(argv=None):
         "NVIDIA_WINE_DLL_DIR": str(args.driver_dir),
         "DXVK_ENABLE_NVAPI": "1",
         "DXVK_CONFIG": "dxgi.hideNvidiaGpu = False",
-        "DXVK_FILTER_DEVICE_NAME": gpu,
-        "VKD3D_FILTER_DEVICE_NAME": gpu,
+        "DXVK_FILTER_DEVICE_NAME": vulkan_name,
+        "VKD3D_FILTER_DEVICE_NAME": vulkan_name,
     }
     config_path = ROOT / "linux-runtime.json"
     print(f"Wine: {wine}\nPrefix: {args.prefix}\nGPU: {gpu}")
+    print(f"Vulkan filter: {vulkan_name}")
     print(f"ComfyUI: {args.comfyui}\nSettings: {config_path}", flush=True)
     if args.check:
         print("Input checks passed. No files changed; GPU rendering untested.")
