@@ -17,21 +17,41 @@ FPS_RATES: dict[str, Fraction] = {
     "120": Fraction(120, 1),
 }
 FPS_CHOICES = tuple(FPS_RATES)
+SOURCE_FPS_RATES: dict[str, Fraction] = {
+    "8": Fraction(8, 1),
+    "12": Fraction(12, 1),
+    "16": Fraction(16, 1),
+    "20": Fraction(20, 1),
+    **FPS_RATES,
+}
+SOURCE_FPS_CHOICES = tuple(SOURCE_FPS_RATES)
 ENGINE_CHOICES = ("Auto", "Native DLSSG", "Cascade")
 
 
 def resolve_target_rate(value: str | int | float | Fraction) -> Fraction:
+    return _resolve_rate(value, FPS_RATES, "Output FPS")
+
+
+def resolve_source_rate(value: str | int | float | Fraction) -> Fraction:
+    return _resolve_rate(value, SOURCE_FPS_RATES, "Input FPS")
+
+
+def _resolve_rate(
+    value: str | int | float | Fraction,
+    rates: dict[str, Fraction],
+    label: str,
+) -> Fraction:
     if isinstance(value, Fraction):
         rate = value
     else:
         key = str(value).strip()
         try:
-            rate = FPS_RATES[key]
+            rate = rates[key]
         except KeyError as exc:
-            choices = ", ".join(FPS_CHOICES)
-            raise ValueError(f"Unsupported output FPS {value!r}. Choose one of: {choices}.") from exc
+            choices = ", ".join(rates)
+            raise ValueError(f"Unsupported {label} {value!r}. Choose one of: {choices}.") from exc
     if rate <= 0:
-        raise ValueError("Output FPS must be positive.")
+        raise ValueError(f"{label} must be positive.")
     return rate
 
 

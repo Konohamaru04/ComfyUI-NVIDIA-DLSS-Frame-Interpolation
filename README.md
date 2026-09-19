@@ -41,8 +41,11 @@ FPS** control because image batches do not carry embedded container timing.
 
 The custom node includes the DLSS runtimes, RenoDX/ReShade carrier, and worker
 executables. Current ComfyUI supplies Python dependencies including PyTorch,
-NumPy, and OpenCV. FFmpeg is only required by the downstream node that encodes
-your output images into video.
+NumPy, and OpenCV. FFmpeg and FFprobe must be available on `PATH` for the
+preserved VIDEO nodes, which probe, decode, encode, and mux their temporary
+outputs. IMAGE-only workflows do not call them until a downstream node encodes
+the returned batch into video. Set `DLSS_FFMPEG_PATH` and `DLSS_FFPROBE_PATH`
+to explicit Linux executable paths when they are not on `PATH`.
 
 ## Installation
 

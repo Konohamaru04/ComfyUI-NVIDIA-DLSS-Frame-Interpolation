@@ -40,7 +40,9 @@ from .dlss_engine.frame_interpolation import (
     ENGINE_CHOICES,
     FPS_CHOICES,
     FrameInterpolationOptions,
+    SOURCE_FPS_CHOICES,
     interpolate_image_sequence,
+    resolve_source_rate,
 )
 from .dlss_engine.frame_interpolation import interpolate_video
 from .dlss_engine.frame_interpolation.models import resolve_target_rate
@@ -516,7 +518,12 @@ class NvidiaDLSSImageFrameInterpolation(io.ComfyNode):
             description="Interpolates an ordered ComfyUI IMAGE batch with DLSS Frame Generation.",
             inputs=[
                 io.Image.Input("images", tooltip="Ordered IMAGE frames, such as VAE Decode output."),
-                io.Combo.Input("input_fps", options=list(FPS_CHOICES), default="24"),
+                io.Combo.Input(
+                    "input_fps",
+                    options=list(SOURCE_FPS_CHOICES),
+                    default="24",
+                    tooltip="Rate of the ordered input images; image batches do not carry timing metadata.",
+                ),
                 io.Combo.Input("output_fps", options=list(FPS_CHOICES), default="60", tooltip="Fractional choices use exact 1001-based rates."),
                 io.Combo.Input("dlss_engine", options=list(ENGINE_CHOICES), default="Auto", tooltip="Auto uses an exact native grid when supported, then cascades when required."),
             ],
@@ -540,7 +547,7 @@ class NvidiaDLSSImageFrameInterpolation(io.ComfyNode):
         target_rate = resolve_target_rate(str(output_fps))
         result = interpolate_image_sequence(
             rgba,
-            resolve_target_rate(str(input_fps)),
+            resolve_source_rate(str(input_fps)),
             FrameInterpolationOptions(
                 target_fps=str(output_fps),
                 engine=str(dlss_engine),

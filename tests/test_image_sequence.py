@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 
 from dlss_engine.frame_interpolation.images import NearestTimestampCollector
+from dlss_engine.frame_interpolation.models import resolve_source_rate
 from dlss_engine.frame_interpolation.processor import TimedFrame
 
 
@@ -18,6 +19,12 @@ def frame(timestamp, provenance, source_index=None):
 
 
 class ImageSequenceTimelineTests(unittest.TestCase):
+    def test_common_image_source_rates_are_supported(self):
+        self.assertEqual(resolve_source_rate("8"), Fraction(8))
+        self.assertEqual(resolve_source_rate("12"), Fraction(12))
+        self.assertEqual(resolve_source_rate("16"), Fraction(16))
+        self.assertEqual(resolve_source_rate("20"), Fraction(20))
+
     def test_selects_a_half_open_image_timeline(self):
         collector = NearestTimestampCollector(Fraction(60), 4)
         collector.push(frame(Fraction(0), "Source", 0))

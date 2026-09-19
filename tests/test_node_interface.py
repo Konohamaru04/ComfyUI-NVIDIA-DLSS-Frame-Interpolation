@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import ast
-import subprocess
 from pathlib import Path
 import unittest
 
 # Type helpers kept simple to keep this test dependency-light and runnable without Comfy.
 
+
 def _extract_io_calls(expr, fn_defs):
+    if isinstance(expr, ast.Starred):
+        return _extract_io_calls(expr.value, fn_defs)
+
     if isinstance(expr, (ast.List, ast.Tuple)):
         result = []
         for item in expr.elts:
@@ -66,47 +69,35 @@ def _collect_node_contracts(source: str) -> dict[str, dict[str, list[str]]]:
 
 
 class ImageNodeInterfaceTests(unittest.TestCase):
-    @staticmethod
-    def _read_main_init(root: Path):
-        candidates = [
-            "upstream/main",
-            "origin/main",
-            "main",
-        ]
-        for ref in candidates:
-            try:
-                return subprocess.check_output(
-                    ["git", "show", f"{ref}:__init__.py"],
-                    cwd=root,
-                    text=True,
-                )
-            except subprocess.CalledProcessError:
-                continue
-        return ""
-
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).parents[1]
         current = (root / "__init__.py").read_text()
-        main = cls._read_main_init(root)
         cls.current_contracts = _collect_node_contracts(current)
-        cls.main_contracts = _collect_node_contracts(main) if main else {}
         cls.current_source = current
-        cls.has_main_reference = bool(main)
 
-    def test_legacy_node_input_contracts_match_upstream(self):
-        if not self.has_main_reference:
-            self.skipTest("No upstream/main reference available to compare upstream node contract compatibility")
-        for node_name in [
-            "NvidiaDLSSFrameInterpolation",
-            "NvidiaDLSSVideoUpscale",
-            "NvidiaDLSSImageUpscale",
-        ]:
-            self.assertEqual(
-                self.current_contracts[node_name]["inputs"],
-                self.main_contracts[node_name]["inputs"],
-                f"{node_name} input contract does not match upstream main",
-            )
+    def test_legacy_node_input_contracts_are_stable(self):
+        expected = {
+            "NvidiaDLSSFrameInterpolation": [
+                "video", "output_fps", "dlss_engine", "encoding_quality",
+                "video_codec", "container", "rename", "custom_suffix", "hdr_mode",
+            ],
+            "NvidiaDLSSVideoUpscale": [
+                "video", "upscale_mode", "require_neural_upscaling", "nr_preset",
+                "nr_style", "nr_intensity", "local_tone_strength",
+                "local_structure_strength", "skin_structure_strength", "automatic_mask",
+                "dlss_model_preset", "encoding_quality", "video_codec", "container",
+                "rename", "custom_suffix", "hdr_mode", "output_detail_strength",
+            ],
+            "NvidiaDLSSImageUpscale": [
+                "image", "upscale_mode", "require_neural_upscaling", "nr_preset",
+                "nr_style", "nr_intensity", "local_tone_strength",
+                "local_structure_strength", "skin_structure_strength", "automatic_mask",
+                "dlss_model_preset", "output_detail_strength",
+            ],
+        }
+        for node_name, inputs in expected.items():
+            self.assertEqual(self.current_contracts[node_name]["inputs"], inputs, node_name)
 
     def test_registered_node_ids_and_contracts(self):
         for node_name in [
@@ -140,6 +131,8 @@ class ImageNodeInterfaceTests(unittest.TestCase):
     def test_default_input_fps_is_supported(self):
         source = (Path(__file__).parents[1] / "dlss_engine" / "frame_interpolation" / "models.py").read_text()
         self.assertIn('"24": Fraction(24, 1)', source)
+        self.assertIn('"8": Fraction(8, 1)', source)
+        self.assertIn('"12": Fraction(12, 1)', source)
 
 
 if __name__ == "__main__":
