@@ -14,7 +14,21 @@ from dlss_engine.core.paths import FFMPEG
 from dlss_engine.frame_interpolation import (
     FrameInterpolationOptions,
     interpolate_video,
+    interpolate_image_sequence,
 )
+from fractions import Fraction
+import numpy as np
+
+
+def image_sequence(frames=5, height=360, width=640):
+    x = np.linspace(0, 255, width, dtype=np.uint8)[None, None, :, None]
+    y = np.linspace(0, 255, height, dtype=np.uint8)[None, :, None, None]
+    base = np.empty((1, height, width, 4), dtype=np.uint8)
+    base[..., 0:1] = x
+    base[..., 1:2] = y
+    base[..., 2:3] = 255 - x
+    base[..., 3] = 255
+    return np.concatenate([np.roll(base, index * 19, axis=2) for index in range(frames)])
 
 
 @unittest.skipUnless(
@@ -73,6 +87,28 @@ class GPUInterpolationTests(unittest.TestCase):
                     logs_directory=root / "cancelled-logs",
                 )
             self.assertEqual(list(cancelled_output.glob("*.mp4")), [])
+
+    def test_interpolate_image_sequence(self):
+        result = interpolate_image_sequence(
+            image_sequence(), Fraction(30),
+            FrameInterpolationOptions(target_fps="60", engine="Auto"),
+        )
+        self.assertEqual(result.frames.shape, (10, 360, 640, 4))
+        self.assertGreater(result.report["generated_frames"], 0)
+        self.assertEqual(result.report["source_type"], "image_sequence")
+        self.assertTrue(result.report["capabilities"]["available"])
+
+    def test_image_sequence_can_be_cancelled(self):
+        def cancel_after_first_frame(value, _message):
+            if value > 0.05:
+                cancel_active_job()
+
+        with self.assertRaises(Cancelled):
+            interpolate_image_sequence(
+                image_sequence(), Fraction(30),
+                FrameInterpolationOptions(target_fps="60", engine="Auto"),
+                progress=cancel_after_first_frame,
+            )
 
 
 if __name__ == "__main__":

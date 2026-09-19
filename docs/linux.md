@@ -1,9 +1,8 @@
 # Linux setup (experimental)
 
-The Python nodes, PyTorch, video decoding, FFmpeg encoding, and muxing run
-natively on Linux. The existing Windows DLSS workers run in a dedicated Wine
-prefix and exchange frames with Python over binary pipes. No new Python
-runtime dependencies are introduced.
+The Python nodes and PyTorch run natively on Linux. The existing Windows DLSS
+workers run in a dedicated Wine prefix and exchange ordered IMAGE frames with
+Python over binary pipes. No new Python runtime dependencies are introduced.
 
 ## Tested behavior
 
@@ -11,12 +10,10 @@ Tested on CachyOS x86-64, an NVIDIA GeForce RTX 5090, driver **610.57.04**,
 and the Wine/DXVK/VKD3D-Proton/DXVK-NVAPI components from **GE-Proton 11-6**.
 The Linux setup requires the patched ReShade carrier documented below.
 
-- Frame interpolation: native and cascaded 640×360, 30→60 FPS processing,
-  with 12 input frames and 24 decoded output frames; audio retained.
-- Image upscale: a batch of two 640×360 images produced two 960×540 images
-  with confirmed DLSSNR feature-18 execution.
-- Video upscale: 640×360→960×540, retaining 12 frames at 30 FPS and audio,
-  with confirmed feature-18 execution.
+- Frame interpolation: native and cascaded 640×360 IMAGE batches, 30→60 FPS,
+  with 12 input images and 24 returned images.
+- Image-sequence upscale: two 640×360 images produced two 960×540 images with
+  confirmed DLSSNR feature-18 execution.
 
 The tested upscale paths execute DLSS SR followed by NR at output resolution.
 The runtime reports `nr_native_fallback: true` and `nr_upscaling_active: false`.
@@ -24,7 +21,7 @@ This is real NR processing, but it is **not direct NR reconstruction from the
 lower-resolution input**. The existing **Require Neural Upscaling** option
 continues to reject that fallback. See [NR behavior](#nr-behavior).
 
-Other Wine builds, GPUs, drivers, codecs, HDR settings, and resolutions need
+Other Wine builds, GPUs, drivers, HDR settings, and resolutions need
 independent validation. Plain Wine 11.16 with Proton Experimental graphics
 libraries also passed interpolation; the complete recipe below uses GE-Proton.
 No NVIDIA runtime or worker executable is modified.
@@ -95,14 +92,14 @@ normal command or desktop shortcut. The old launcher is no longer needed;
 setup leaves existing scripts untouched. Moving this custom-node directory to
 another machine requires running setup there with its own paths.
 
-`--verify` runs the three real ComfyUI node tests, including feature-18 log
-verification and output dimensions, frame counts, timing and audio checks.
+`--verify` runs both real ComfyUI IMAGE-node tests, including feature-18 log
+verification, output dimensions, frame counts, and timing checks.
 Failure returns a nonzero exit status; it does not claim that configuration
 alone proves NR works. These tests retain the direct-NR/fallback distinction
 and do not establish subjective enhancement quality.
 
 The helper was tested from a fresh prefix on the RTX 5090 / driver 610.57.04
-with GE-Proton 11-6: all three ComfyUI node tests passed. Automated tests also
+with GE-Proton 11-6: both ComfyUI IMAGE-node tests passed. Automated tests also
 cover reruns, destination symlinks, saved paths containing spaces/quotes,
 worker-only environment handling, invalid settings, check-only behavior,
 unmanaged-prefix refusal and invalid/LFS-pointer DLLs.
@@ -335,15 +332,16 @@ Expect `available: true` and `native_multiplier` greater than one. HAGS and
 Windows Authenticode checks are not applicable on Linux; they are not bypasses
 for the runtime's actual capability checks.
 
-Then try `Load Video → NVIDIA DLSS Frame Interpolation → Save Video` with a
-short 30 FPS clip, output FPS 60, engine Auto, H.264, and MP4. Inspect the output
-and `report_json`. Only Save Video makes the output permanent.
+Then route an ordered IMAGE batch from VAE Decode into **NVIDIA DLSS Image
+Frame Interpolation**, set Input FPS to 30, Output FPS to 60, and Engine to
+Auto. Inspect the returned IMAGE batch and `report_json`; use a downstream
+video-combine or image-save node when output files are needed.
 
 ## NR behavior
 
-Image/video enhancement uses RenoDX/ReShade and the separate signed DLSSNR
-feature-18 runtime. With the setup above, both upscale nodes completed actual
-NR evaluation. Their reports distinguish these cases:
+Image-sequence enhancement uses RenoDX/ReShade and the separate signed DLSSNR
+feature-18 runtime. With the setup above, the sequence node completed actual
+NR evaluation. Its report distinguishes these cases:
 
 - `feature_18_confirmed: true`: signed NR execution was verified in the logs.
 - `nr_upscaling_active: true`: NR directly reconstructed the larger output.
@@ -414,12 +412,13 @@ To run the real interpolation test as well, with the setup above active:
 DLSS_RUN_GPU_TESTS=1 python -m unittest discover -s tests -v
 ```
 
-The GPU test creates a short synthetic clip, runs native and cascaded
-interpolation, decodes the results, checks dimensions/frame count/FPS/audio,
-and exercises cancellation with incomplete-output cleanup. It is opt-in and
-is not run by the CPU-only GitHub Actions jobs. It does not validate subjective interpolation quality.
+The GPU test creates an ordered synthetic IMAGE batch, runs interpolation,
+checks returned dimensions/frame count/FPS and exercises cancellation. It is
+opt-in and is not run by the CPU-only GitHub Actions jobs. It does not validate
+subjective interpolation quality.
 
-To exercise all three actual ComfyUI node entry points, run with ComfyUI's
+Python environment and the full NR setup above:
+To exercise both actual ComfyUI IMAGE-node entry points, run with ComfyUI's
 Python environment and the full NR setup above:
 
 ```bash
@@ -427,22 +426,23 @@ DLSS_COMFYUI_PATH="$HOME/ComfyUI" DLSS_RUN_GPU_TESTS=1 \
   DLSS_RUN_COMFY_GPU_TESTS=1 python -m unittest discover -s tests -v
 ```
 
-These tests check image-batch dimensions and finite pixels, confirmed NR
-execution, and decoded video dimensions/frame count/FPS/audio. They retain
-the distinction between direct NR upscaling and the runtime's NR fallback.
+These tests check returned IMAGE-batch dimensions and finite pixels, frame
+counts/FPS, confirmed NR execution, and the distinction between direct NR
+upscaling and the runtime's NR fallback.
 
 ## SDR composition in ComfyUI
 
-Restart ComfyUI after updating the node. In **NVIDIA DLSS Image Upscale** or
-**NVIDIA DLSS Video Upscale**, set `nr_style` to `Cinematic`, `nr_intensity`
+Restart ComfyUI after updating the node. In **NVIDIA DLSS Image Sequence
+Upscale**, set `nr_style` to `Cinematic`, `nr_intensity`
 to `2`, and the new `output_detail_strength` to `2`. Use `1` for the
 unmodified worker output. Old workflows and callers default to `1`.
 
-For a full video chain: Load Video → Frame Interpolation (60 FPS) → Video
-Upscale (2× for 1080p→4K, HDR off, composition 2) → Save Video. Check the
-report for both feature-18 evidence and `output_composition.applied: true`.
-The latter reports a CPU output adjustment, not another GPU inference pass.
-A successful NR API call alone does not establish Windows-equivalent quality.
+For an ordered image workflow: VAE Decode → Image Frame Interpolation (60 FPS)
+→ Image Sequence Upscale (2× for 1080p→4K, composition 2) → your preferred
+video-combine or save node. Check the report for both feature-18 evidence and
+`output_composition.applied: true`. The latter reports a CPU output adjustment,
+not another GPU inference pass. A successful NR API call alone does not
+establish Windows-equivalent quality.
 
 The tested two-second SDR comparison used a direct NR renderer and the actual
 OptiScaler composition shader on RTX 5090. The ComfyUI control applies a

@@ -129,7 +129,7 @@ def main(argv=None):
     parser.add_argument(
         "--verify",
         action="store_true",
-        help="After setup, run all three ComfyUI GPU tests",
+        help="After setup, run both ComfyUI IMAGE-node GPU tests",
     )
     args = parser.parse_args(argv)
     require(sys.platform == "linux", "This helper supports Linux only.")
@@ -306,7 +306,7 @@ def main(argv=None):
             timeout=300,
             cwd=ROOT,
         )
-        print("All three ComfyUI GPU tests passed.")
+        print("Both ComfyUI IMAGE-node GPU tests passed.")
     else:
         print("Rendering not verified. Rerun with --verify to test all nodes.")
 
